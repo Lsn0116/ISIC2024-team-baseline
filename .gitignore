@@ -1,0 +1,34 @@
+# Training outputs
+outputs/
+kaggle_models_*/
+
+# Generated model files
+*.cbm
+*.joblib
+*.pth
+*.pt
+*.pkl
+
+# Logs / submissions
+*.log
+submission.csv
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Backup
+*.bak
+
+# Environments
+.env
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
