@@ -41,7 +41,7 @@
 
 ISIC 2024 訓練集共 401,059 個病灶、1,042 位病人，其中良性 400,666、惡性僅 393（0.098%，約 1:1,020）。任務是判斷個別病灶是否惡性，而非病人是否罹癌。
 
-![Baseline 4D and 5B architecture](assets/baseline_architecture.png)
+<p align="center"><img src="assets/baseline_architecture.png" alt="Baseline 4D and 5B architecture" width="760"></p>
 
 原 Baseline 直接使用既有影像模型 checkpoints，**下游接收 CNN 分類分數，而非高維 embedding**。我們重新訓練的是 GBT，不是原 CNN。
 
@@ -86,7 +86,7 @@ ROS/RUS 的參數指抽樣後的正／負樣本數量比。Noise 只加在訓練
 
 CA_FP05 不改變原有 242 features 或 CNN checkpoints，而是同時改良抽樣、樣本權重及分數增強。
 
-![CA_FP05 training and inference workflow](assets/ca_fp05_architecture.png)
+<p align="center"><img src="assets/ca_fp05_architecture.png" alt="CA_FP05 training and inference workflow" width="760"></p>
 
 ### 3.1 四項主要改良
 
@@ -169,7 +169,7 @@ MILK 保留 938 非惡性、2,387 BCC、648 SCC（含 in situ）、188 Melanoma�
 
 ### 4.2 EXT_ALL：242 → 246 features
 
-![External dataset feature integration](assets/external_architecture.png)
+<p align="center"><img src="assets/external_architecture.png" alt="External dataset feature integration" width="760"></p>
 
 核心作法：**外部影像用於訓練 LR 分類頭，而不是直接增加 ISIC CatBoost 的訓練列數。** Encoder 保持 frozen；只訓練外部 StandardScaler 與 binary / multiclass LR，設定選擇在外部 grouped CV 內進行，不使用 ISIC labels 訓練外部分類頭。
 
@@ -189,7 +189,7 @@ General malignancy 分數來自獨立 binary LR，並非將三個 subtype 分數
 
 ### 4.4 CA_ALL_RANK：目前最佳外部資料提交
 
-![CA_ALL_RANK ensemble workflow](assets/rank_fusion.png)
+<p align="center"><img src="assets/rank_fusion.png" alt="CA_ALL_RANK ensemble workflow" width="640"></p>
 
 Rank fusion 是先將各模型分數轉為排名，再平均，降低不同模型輸出尺度的影響。本專案 ensemble percentile = average-tie rank / N，與前述 patient percentile 不同。先完成每組匹配 seed/fold 的融合，再平均 45 組結果；不在 inference minibatch 中計算排名。
 
@@ -232,3 +232,32 @@ Rank fusion 是先將各模型分數轉為排名，再平均，降低不同模�
 - 58 組歷史方法 Local／Private Pearson 約 0.519，本輪 11 組 external 為 −0.544；僅為描述性結果，候選高度重疊。
 - CA + ALL 的 Local 增益從 mean-fold 的 +0.000209，縮小至跨 seed 下游 held-out ensemble 的約 +0.000047。重複 CV 或 bootstrap 不等於獨立驗證。
 
+### 建議組員討論的三個方向
+
+1. **先改善驗證策略：** 確立更嚴格的上游／下游 patient-level 隔離，或取得未參與方法選擇的獨立 TBP 評估資料。
+2. **再做公平外部資料對照：** 相同架構與模型預算（例如兩組獨立隨機性的 CA 模型），區分新增外部資訊與單純增加模型數的貢獻。
+3. **視資源決定是否進行 T3：** External-prior regularized transfer learning，與 ISIC-only head 做 matched comparison。T3 目前只有設計／prototype，尚未正式訓練。
+
+**目前暫停新訓練及提交。** 先以 CA_FP05 作為主要成果，外部資料如實報告 Local 增益及 Private 負向結果，而非宣稱已成功提升最強模型。
+
+> 研究限制：MILK10k 於 2025 年發布，晚於原競賽；late-submission 的適用性尚未獲明文確認。此部分定位為賽後研究，Kaggle 成功評分不等於官方資格認可。原 External EVA 預訓練資料成員也未完全確認；不能宣稱全流程無 leakage 或已獲得正式競賽名次。
+
+<details>
+<summary>實驗紀錄與程式來源（需要時展開）</summary>
+
+本摘要根據專案既有 `01_BASELINE_GUIDE.md`、`02_SAMPLING_GUIDE.md`、`05_CA_FP05_DEEP_DIVE.md`、`06_EXTERNAL_DATASET_GUIDE.md`、`07_ENSEMBLE_GUIDE.md`、`09_TEAM_DISCUSSION.md`，以及本輪 Kaggle submission / generalization audit 報告整理。以下為專案內的來源路徑，非公開網址：
+
+| 內容 | 專案來源 |
+| :--- | :--- |
+| 原始 Baseline 4D / 5B | `baseline_4D/kaggle_submission_4d.ipynb`、`baseline_5B/kaggle_submission_5b.ipynb` |
+| 4D Control | `experiments/train_catboost_4D_control.py` |
+| CA_FP05 設計 | `experiments/balanced_aug_hns_v1_design.py`、`experiments/imbalance_v1_design.py` |
+| CA_FP05 protocol | `outputs/experiments/BALANCED_AUG_HNS_V1_REPORT/frozen_protocol.json` |
+| External LR | `experiments/external_dataset_v2/train_heads.py` |
+| Patient context | `experiments/ca_external_v2/context.py` |
+| External 結果 | `experiments/ca_external_v3/outputs/report/` |
+| Fusion | `experiments/kaggle_submission_batch_v1/fusion.py` |
+| Kaggle 歷史結果 | `experiments/generalization_audit_v1/outputs/historical_comparison.csv` |
+| 泛化審查 | `experiments/generalization_audit_v1/outputs/RESULTS.md` |
+
+</details>
