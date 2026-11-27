@@ -41,27 +41,7 @@
 
 ISIC 2024 訓練集共 401,059 個病灶、1,042 位病人，其中良性 400,666、惡性僅 393（0.098%，約 1:1,020）。任務是判斷個別病灶是否惡性，而非病人是否罹癌。
 
-```mermaid
-flowchart TD
-    A[Skin lesion images] --> B[既有影像模型<br/>External EVA / Competition EVA / EdgeNeXt]
-    B --> C[分類分數及衍生特徵]
-    D[Metadata<br/>年齡、性別、病灶大小、顏色等] --> E[Feature engineering<br/>病人及群集相對特徵]
-    C --> F[共同 242 features]
-    E --> F
-    F --> G[4D：CatBoost-only<br/>9 seeds × 5 folds]
-    F --> H[5B：三種 GBT<br/>各 9 seeds × 5 folds]
-    G --> I[CatBoost × 45]
-    H --> J[CatBoost × 45]
-    H --> K[LightGBM × 45]
-    H --> L[XGBoost × 45]
-    J --> M[Family rank averaging]
-    K --> M
-    L --> M
-    I --> N[4D final score]
-    M --> O[5B final score]
-    classDef main fill:#dbeafe,stroke:#4874a3,color:#172b4d;
-    class F,G,H main;
-```
+![Baseline 4D and 5B architecture](assets/baseline_architecture.png)
 
 原 Baseline 直接使用既有影像模型 checkpoints，**下游接收 CNN 分類分數，而非高維 embedding**。我們重新訓練的是 GBT，不是原 CNN。
 
@@ -106,18 +86,7 @@ ROS/RUS 的參數指抽樣後的正／負樣本數量比。Noise 只加在訓練
 
 CA_FP05 不改變原有 242 features 或 CNN checkpoints，而是同時改良抽樣、樣本權重及分數增強。
 
-```mermaid
-flowchart TD
-    A[原始 242 features] --> B[Patient-aware Positive ROS<br/>惡性 300 → 979]
-    B --> C[Full Coverage<br/>保留全部 326,478 良性樣本]
-    C --> D[Effective Class Cost Alignment<br/>正權重 3.3117 / 負權重 0.9931]
-    D --> E[Class-aware Gaussian Noise<br/>惡性 σ=0.05 / 良性 σ=0.10]
-    E --> F[CatBoost × 45]
-    F --> G[各模型全 test set 排名<br/>再平均 45 組 percentile]
-    G --> H[Private pAUC = 0.17233]
-    classDef changed fill:#dcfce7,stroke:#4f8a71,color:#153e32;
-    class B,C,D,E,H changed;
-```
+![CA_FP05 training and inference workflow](assets/ca_fp05_architecture.png)
 
 ### 3.1 四項主要改良
 
@@ -200,25 +169,7 @@ MILK 保留 938 非惡性、2,387 BCC、648 SCC（含 in situ）、188 Melanoma�
 
 ### 4.2 EXT_ALL：242 → 246 features
 
-```mermaid
-flowchart TD
-    subgraph Train[外部資料：訓練分類頭]
-        A[MILK clinical images<br/>4,161 張] --> B[Frozen External EVA<br/>固定 encoder 權重]
-        B --> C[384-D pre-logits embedding]
-        C --> D[StandardScaler + Binary LR<br/>良性 / 惡性]
-        C --> E[StandardScaler + Multiclass LR<br/>非惡性 / BCC / SCC / Melanoma]
-    end
-    F[ISIC 2024 images] --> G[同一 Frozen EVA<br/>384-D embedding]
-    G --> H[使用已訓練的兩個 LR heads 推論]
-    D -. 固定分類頭 .-> H
-    E -. 固定分類頭 .-> H
-    H --> I[4 external scores<br/>Malignancy / BCC / SCC / Melanoma]
-    J[原始 242 features] --> K[246 features]
-    I --> K
-    K --> L[CA_FP05 訓練策略<br/>CatBoost × 45]
-    classDef main fill:#e0e7ff,stroke:#6b75ad,color:#272e58;
-    class I,K,L main;
-```
+![External dataset feature integration](assets/external_architecture.png)
 
 核心作法：**外部影像用於訓練 LR 分類頭，而不是直接增加 ISIC CatBoost 的訓練列數。** Encoder 保持 frozen；只訓練外部 StandardScaler 與 binary / multiclass LR，設定選擇在外部 grouped CV 內進行，不使用 ISIC labels 訓練外部分類頭。
 
@@ -238,17 +189,7 @@ General malignancy 分數來自獨立 binary LR，並非將三個 subtype 分數
 
 ### 4.4 CA_ALL_RANK：目前最佳外部資料提交
 
-```mermaid
-flowchart TD
-    A[CA_FP05<br/>242 features / 45 CB] --> C[每個 seed-fold 的 CA 分數<br/>轉為全 test set percentile]
-    B[EXT_ALL<br/>246 features / 45 CB] --> D[對應 seed-fold 的 ALL 分數<br/>轉為全 test set percentile]
-    C --> E[等權平均 rank<br/>每個匹配 seed-fold]
-    D --> E
-    E --> F[平均 45 組融合結果]
-    F --> G[90 unique models<br/>Private pAUC = 0.17224]
-    classDef main fill:#e0e7ff,stroke:#6b75ad,color:#272e58;
-    class E,G main;
-```
+![CA_ALL_RANK ensemble workflow](assets/rank_fusion.png)
 
 Rank fusion 是先將各模型分數轉為排名，再平均，降低不同模型輸出尺度的影響。本專案 ensemble percentile = average-tie rank / N，與前述 patient percentile 不同。先完成每組匹配 seed/fold 的融合，再平均 45 組結果；不在 inference minibatch 中計算排名。
 
@@ -291,4 +232,32 @@ Rank fusion 是先將各模型分數轉為排名，再平均，降低不同模�
 - 58 組歷史方法 Local／Private Pearson 約 0.519，本輪 11 組 external 為 −0.544；僅為描述性結果，候選高度重疊。
 - CA + ALL 的 Local 增益從 mean-fold 的 +0.000209，縮小至跨 seed 下游 held-out ensemble 的約 +0.000047。重複 CV 或 bootstrap 不等於獨立驗證。
 
+### 建議組員討論的三個方向
 
+1. **先改善驗證策略：** 確立更嚴格的上游／下游 patient-level 隔離，或取得未參與方法選擇的獨立 TBP 評估資料。
+2. **再做公平外部資料對照：** 相同架構與模型預算（例如兩組獨立隨機性的 CA 模型），區分新增外部資訊與單純增加模型數的貢獻。
+3. **視資源決定是否進行 T3：** External-prior regularized transfer learning，與 ISIC-only head 做 matched comparison。T3 目前只有設計／prototype，尚未正式訓練。
+
+**目前暫停新訓練及提交。** 先以 CA_FP05 作為主要成果，外部資料如實報告 Local 增益及 Private 負向結果，而非宣稱已成功提升最強模型。
+
+> 研究限制：MILK10k 於 2025 年發布，晚於原競賽；late-submission 的適用性尚未獲明文確認。此部分定位為賽後研究，Kaggle 成功評分不等於官方資格認可。原 External EVA 預訓練資料成員也未完全確認；不能宣稱全流程無 leakage 或已獲得正式競賽名次。
+
+<details>
+<summary>實驗紀錄與程式來源（需要時展開）</summary>
+
+本摘要根據專案既有 `01_BASELINE_GUIDE.md`、`02_SAMPLING_GUIDE.md`、`05_CA_FP05_DEEP_DIVE.md`、`06_EXTERNAL_DATASET_GUIDE.md`、`07_ENSEMBLE_GUIDE.md`、`09_TEAM_DISCUSSION.md`，以及本輪 Kaggle submission / generalization audit 報告整理。以下為專案內的來源路徑，非公開網址：
+
+| 內容 | 專案來源 |
+| :--- | :--- |
+| 原始 Baseline 4D / 5B | `baseline_4D/kaggle_submission_4d.ipynb`、`baseline_5B/kaggle_submission_5b.ipynb` |
+| 4D Control | `experiments/train_catboost_4D_control.py` |
+| CA_FP05 設計 | `experiments/balanced_aug_hns_v1_design.py`、`experiments/imbalance_v1_design.py` |
+| CA_FP05 protocol | `outputs/experiments/BALANCED_AUG_HNS_V1_REPORT/frozen_protocol.json` |
+| External LR | `experiments/external_dataset_v2/train_heads.py` |
+| Patient context | `experiments/ca_external_v2/context.py` |
+| External 結果 | `experiments/ca_external_v3/outputs/report/` |
+| Fusion | `experiments/kaggle_submission_batch_v1/fusion.py` |
+| Kaggle 歷史結果 | `experiments/generalization_audit_v1/outputs/historical_comparison.csv` |
+| 泛化審查 | `experiments/generalization_audit_v1/outputs/RESULTS.md` |
+
+</details>
